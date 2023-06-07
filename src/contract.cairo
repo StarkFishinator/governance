@@ -12,6 +12,9 @@ mod Governance {
 
     use starknet::ContractAddress;
 
+    use array::ArrayTrait;
+    use array::SpanTrait;
+
 
     struct Storage {
         proposal_details: LegacyMap::<felt252, PropDetails>,
@@ -53,6 +56,16 @@ mod Governance {
     #[external]
     fn submit_proposal(impl_hash: felt252, to_upgrade: ContractType) -> felt252 {
         Proposals::submit_proposal(impl_hash, to_upgrade)
+    }
+
+    #[external]
+    fn delegate_vote(to_addr: ContractAddress, calldata: Array<(ContractAddress, u128)>, amount: u128) {
+        Proposals::delegate_vote(to_addr, calldata, amount)
+    }
+
+    #[external]
+    fn withdraw_delegation(to_addr: ContractAddress, calldata: Array<(ContractAddress, u128)>, amount: u128) {
+        Proposals::withdraw_delegation(to_addr, calldata, amount)
     }
 
     #[external]
