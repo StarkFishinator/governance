@@ -46,6 +46,11 @@ mod Proposals {
         (yay, nay)
     }
 
+    fn get_voting_power(addr: ContractAddress) -> u128 {
+        let voting_power = total_delegated_to::read(addr);
+        voting_power
+    }
+
     fn get_proposal_details(prop_id: felt252) -> PropDetails {
         proposal_details::read(prop_id)
     }

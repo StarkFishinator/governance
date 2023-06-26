@@ -73,6 +73,11 @@ mod Governance {
         Proposals::vote(prop_id, opinion)
     }
 
+    #[external]
+    fn get_voting_power(addr: ContractAddress) -> u128 {
+        Proposals::get_voting_power(addr)
+    }
+
     #[view]
     fn get_proposal_status(prop_id: felt252) -> felt252 {
         Proposals::get_proposal_status(prop_id)
