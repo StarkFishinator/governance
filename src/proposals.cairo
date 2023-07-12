@@ -27,6 +27,7 @@ mod Proposals {
     use governance::contract::Governance::proposal_details;
     use governance::contract::Governance::proposal_voted_by;
     use governance::contract::Governance::governance_token_address;
+    use governance::contract::Governance::token_initialized;
     use governance::contract::Governance::investor_voting_power;
     use governance::contract::Governance::total_investor_distributed_power;
     use governance::contract::Governance::delegate_hash;
@@ -86,6 +87,12 @@ mod Proposals {
 
     fn as_u256(high: u128, low: u128) -> u256 {
         u256 { low, high }
+    }
+
+    fn initialize_gov_token(token_addr: ContractAddress) {
+        assert(!token_initialized::read(), 'gov token already deployed');
+        governance_token_address::write(token_addr);
+        token_initialized::write(true);
     }
 
     fn submit_proposal(impl_hash: felt252, to_upgrade: ContractType) -> felt252 {

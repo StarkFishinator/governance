@@ -29,7 +29,8 @@ mod Governance {
         amm_address: ContractAddress,
         airdrop_claimed: LegacyMap::<ContractAddress, u128>,
         delegate_hash: LegacyMap::<ContractAddress, felt252>,
-        total_delegated_to: LegacyMap::<ContractAddress, u128>
+        total_delegated_to: LegacyMap::<ContractAddress, u128>,
+        token_initialized: bool
     }
 
     // PROPOSALS
@@ -51,6 +52,11 @@ mod Governance {
     #[view]
     fn get_vote_counts(prop_id: felt252) -> (felt252, felt252) {
         Proposals::get_vote_counts(prop_id)
+    }
+
+    #[external]
+    fn initialize_gov_token(token_addr: ContractAddress) {
+        Proposals::initialize_gov_token(token_addr)
     }
 
     #[external]
