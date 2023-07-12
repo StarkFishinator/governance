@@ -1,53 +1,19 @@
-// This file if possible calls out to Proposals or Upgrades or other files where actual logic resides.
-// When Components arrive in Cairo 2.?, it will be refactored to take advantage of them.
+// This file if possible calls out to Proposals or Upgrades or other files where actual logic resides
 
-use starknet::ContractAddress;
-use governance::types::{ContractType, PropDetails};
-
-#[starknet::interface]
-trait IGovernance<TContractState> {
-    // PROPOSALS
-
-    fn vote(ref self: TContractState, prop_id: felt252, opinion: felt252);
-    fn get_proposal_details(self: @TContractState, prop_id: felt252) -> PropDetails;
-    fn get_vote_counts(self: @TContractState, prop_id: felt252) -> (u128, u128);
-    fn submit_proposal(
-        ref self: TContractState, impl_hash: felt252, to_upgrade: ContractType
-    ) -> felt252;
-    fn get_proposal_status(self: @TContractState, prop_id: felt252) -> felt252;
-
-    // UPGRADES
-
-    fn get_governance_token_address(self: @TContractState) -> ContractAddress;
-    fn get_amm_address(self: @TContractState) -> ContractAddress;
-    fn apply_passed_proposal(ref self: TContractState, prop_id: felt252);
-
-    // AIRDROPS
-
-    fn claim(
-        ref self: TContractState, address: ContractAddress, amount: u128, proof: Array::<felt252>
-    );
-
-    // OPTIONS
-
-    fn add_0607_1307_options(ref self: TContractState);
-}
-
-
-#[starknet::contract]
+#[contract]
 mod Governance {
+    use governance::types::PropDetails;
     use governance::types::BlockNumber;
     use governance::types::VoteStatus;
-    use governance::proposals::Proposals;
     use governance::types::ContractType;
-    use governance::types::PropDetails;
+    use governance::proposals::Proposals;
     use governance::upgrades::Upgrades;
     use governance::airdrop::Airdrop;
     use governance::options::Options;
 
     use starknet::ContractAddress;
 
-    #[storage]
+
     struct Storage {
         proposal_details: LegacyMap::<felt252, PropDetails>,
         proposal_vote_ends: LegacyMap::<felt252, BlockNumber>,
@@ -68,93 +34,74 @@ mod Governance {
 
     // PROPOSALS
 
-    #[derive(starknet::Event, Drop)]
-    struct Proposed {
-        prop_id: felt252,
-        payload: felt252,
-        to_upgrade: ContractType
-    }
-
-    #[derive(starknet::Event, Drop)]
-    struct Voted {
-        prop_id: felt252,
-        voter: ContractAddress,
-        opinion: VoteStatus
-    }
-
-    #[derive(starknet::Event, Drop)]
-    struct Claimed {
-        address: ContractAddress,
-        received: u128
-    }
-
-    #[derive(starknet::Event, Drop)]
     #[event]
-    enum Event {
-        Proposed: Proposed,
-        Voted: Voted,
-        Claimed: Claimed
+    fn Proposed(prop_id: felt252, impl_hash: felt252, to_upgrade: ContractType) {}
+
+    #[event]
+    fn Voted(prop_id: felt252, voter: ContractAddress, opinion: VoteStatus) {}
+
+    #[view]
+    fn get_proposal_details(prop_id: felt252) -> PropDetails {
+        Proposals::get_proposal_details(prop_id)
     }
 
-    #[constructor]
-    fn constructor(ref self: ContractState, govtoken_address: ContractAddress) {
-        // This is not used in production on mainnet, because the governance token is already deployed (and distributed).
-        self.governance_token_address.write(govtoken_address);
+    // This should ideally return VoteCounts, but it seems like structs can't be returned from 
+    // C1.0 external fns as they can't be serialized
+    // Actually it can, TODO do the same as I did with PropDetails for this
+    #[view]
+    fn get_vote_counts(prop_id: felt252) -> (u128, u128) {
+        Proposals::get_vote_counts(prop_id)
     }
 
-    #[external(v0)]
-    impl Governance of super::IGovernance<ContractState> {
-        // PROPOSALS
+    #[external]
+    fn submit_proposal(impl_hash: felt252, to_upgrade: ContractType) -> felt252 {
+        Proposals::submit_proposal(impl_hash, to_upgrade)
+    }
 
-        fn get_proposal_details(self: @ContractState, prop_id: felt252) -> PropDetails {
-            Proposals::get_proposal_details(prop_id)
-        }
+    #[external]
+    fn vote(prop_id: felt252, opinion: felt252) {
+        Proposals::vote(prop_id, opinion)
+    }
 
-        // This should ideally return VoteCounts, but it seems like structs can't be returned from 
-        // C1.0 external fns as they can't be serialized
-        // Actually it can, TODO do the same as I did with PropDetails for this
-        fn get_vote_counts(self: @ContractState, prop_id: felt252) -> (u128, u128) {
-            Proposals::get_vote_counts(prop_id)
-        }
+    #[view]
+    fn get_proposal_status(prop_id: felt252) -> felt252 {
+        Proposals::get_proposal_status(prop_id)
+    }
 
-        fn submit_proposal(
-            ref self: ContractState, impl_hash: felt252, to_upgrade: ContractType
-        ) -> felt252 {
-            Proposals::submit_proposal(impl_hash, to_upgrade)
-        }
+    #[external]
+    fn vote_investor(prop_id: felt252, opinion: felt252) {
+        Proposals::vote_investor(prop_id, opinion)
+    }
 
-        fn vote(ref self: ContractState, prop_id: felt252, opinion: felt252) {
-            Proposals::vote(prop_id, opinion)
-        }
+    // UPGRADES
 
-        fn get_proposal_status(self: @ContractState, prop_id: felt252) -> felt252 {
-            Proposals::get_proposal_status(prop_id)
-        }
+    #[view]
+    fn get_governance_token_address() -> ContractAddress {
+        governance_token_address::read()
+    }
 
-        // UPGRADES
+    #[view]
+    fn get_amm_address() -> ContractAddress {
+        amm_address::read()
+    }
 
-        fn get_governance_token_address(self: @ContractState) -> ContractAddress {
-            self.governance_token_address.read()
-        }
+    #[external]
+    fn apply_passed_proposal(prop_id: felt252) {
+        Upgrades::apply_passed_proposal(prop_id)
+    }
 
-        fn get_amm_address(self: @ContractState) -> ContractAddress {
-            self.amm_address.read()
-        }
+    // AIRDROPS
 
-        fn apply_passed_proposal(ref self: ContractState, prop_id: felt252) {
-            Upgrades::apply_passed_proposal(prop_id)
-        }
+    #[event]
+    fn Claimed(address: ContractAddress, received: u128) {}
 
-        // AIRDROPS
+    #[external]
+    fn claim(address: ContractAddress, amount: u128, proof: Array::<felt252>) {
+        Airdrop::claim(address, amount, proof)
+    }
 
-        fn claim(
-            ref self: ContractState, address: ContractAddress, amount: u128, proof: Array::<felt252>
-        ) {
-            Airdrop::claim(address, amount, proof)
-        }
-
-        fn add_0607_1307_options(ref self: ContractState) {
-            Options::add_0607_1307_options()
-        }
+    #[external]
+    fn add_0607_1307_options() {
+        Options::add_0607_1307_options()
     }
 }

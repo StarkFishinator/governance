@@ -17,7 +17,6 @@ mod Proposals {
     use starknet::BlockInfo;
     use starknet::ContractAddress;
     use starknet::contract_address_const;
-    use starknet::event::EventEmitter;
 
     use starknet::class_hash::class_hash_try_from_felt252;
     use starknet::contract_address::contract_address_to_felt252;
@@ -32,8 +31,6 @@ mod Proposals {
     use governance::contract::Governance::total_investor_distributed_power;
     use governance::contract::Governance::delegate_hash;
     use governance::contract::Governance::total_delegated_to;
-    use governance::contract::Governance::ContractState;
-    use governance::contract::Governance::unsafe_new_contract_state; // To be removed once Components arrive
     use governance::contract::Governance;
     use governance::types::BlockNumber;
     use governance::types::ContractType;
@@ -43,21 +40,14 @@ mod Proposals {
     use governance::constants;
 
     fn get_vote_counts(prop_id: felt252) -> (u128, u128) {
-        let state: ContractState = Governance::unsafe_new_contract_state();
-
-        let yay = proposal_total_yay::InternalContractStateTrait::read(
-            @state.proposal_total_yay, prop_id
-        );
-        let nay = proposal_total_nay::InternalContractStateTrait::read(
-            @state.proposal_total_nay, prop_id
-        );
+        let yay = proposal_total_yay::read(prop_id);
+        let nay = proposal_total_nay::read(prop_id);
 
         (yay.try_into().unwrap(), nay.try_into().unwrap())
     }
 
     fn get_proposal_details(prop_id: felt252) -> PropDetails {
-        let state = Governance::unsafe_new_contract_state();
-        proposal_details::InternalContractStateTrait::read(@state.proposal_details, prop_id)
+        proposal_details::read(prop_id)
     }
 
     fn get_free_prop_id() -> felt252 {
@@ -65,10 +55,7 @@ mod Proposals {
     }
 
     fn _get_free_prop_id(currid: felt252) -> felt252 {
-        let state = Governance::unsafe_new_contract_state();
-        let res = proposal_vote_ends::InternalContractStateTrait::read(
-            @state.proposal_vote_ends, currid
-        );
+        let res = proposal_vote_ends::read(currid);
 
         if res == 0 {
             currid
@@ -83,10 +70,7 @@ mod Proposals {
     }
 
     fn assert_voting_in_progress(prop_id: felt252) {
-        let state = Governance::unsafe_new_contract_state();
-        let end_block_number_felt: felt252 = proposal_vote_ends::InternalContractStateTrait::read(
-            @state.proposal_vote_ends, prop_id
-        );
+        let end_block_number_felt: felt252 = proposal_vote_ends::read(prop_id);
         let end_block_number: u64 = end_block_number_felt.try_into().unwrap();
         assert(end_block_number != 0, 'prop_id not found');
 
@@ -101,10 +85,7 @@ mod Proposals {
 
     fn submit_proposal(payload: felt252, to_upgrade: ContractType) -> felt252 {
         assert_correct_contract_type(to_upgrade);
-        let mut state = Governance::unsafe_new_contract_state();
-        let govtoken_addr = governance_token_address::InternalContractStateTrait::read(
-            @state.governance_token_address
-        );
+        let govtoken_addr = governance_token_address::read();
         let caller = get_caller_address();
         let caller_balance: u128 = IERC20Dispatcher {
             contract_address: govtoken_addr
@@ -117,22 +98,17 @@ mod Proposals {
 
         let prop_id = get_free_prop_id();
         let prop_details = PropDetails { payload: payload, to_upgrade: to_upgrade };
-        proposal_details::InternalContractStateTrait::write(
-            ref state.proposal_details, prop_id, prop_details
-        );
+        proposal_details::write(prop_id, prop_details);
 
         let current_block_number: u64 = get_block_info().unbox().block_number;
         let end_block_number: BlockNumber = (current_block_number
             + constants::PROPOSAL_VOTING_TIME_BLOCKS)
             .into();
-        proposal_vote_ends::InternalContractStateTrait::write(
-            ref state.proposal_vote_ends, prop_id, end_block_number
-        );
+        proposal_vote_ends::write(prop_id, end_block_number);
 
-        state.emit(Governance::Proposed { prop_id, payload, to_upgrade });
+        Governance::Proposed(prop_id, payload, to_upgrade);
         prop_id
     }
-
 
     fn hashing(
         hashed_data: felt252, calldata_span: Span<(ContractAddress, u128)>, index: u32
@@ -187,23 +163,15 @@ mod Proposals {
     fn delegate_vote(
         to_addr: ContractAddress, calldata: Array<(ContractAddress, u128)>, amount: u128
     ) {
-        let mut state = Governance::unsafe_new_contract_state();
-
         let caller_addr = get_caller_address();
-        let stored_hash = delegate_hash::InternalContractStateTrait::read(
-            @state.delegate_hash, caller_addr
-        );
+        let stored_hash = delegate_hash::read(caller_addr);
         let calldata_span: Span<(ContractAddress, u128)> = calldata.span();
         assert(stored_hash == hashing(0, calldata_span, 0), 'incorrect delegate list');
 
-        let curr_total_delegated_to = total_delegated_to::InternalContractStateTrait::read(
-            @state.total_delegated_to, to_addr
-        );
+        let curr_total_delegated_to = total_delegated_to::read(to_addr);
         let converted_addr = contract_address_to_felt252(caller_addr);
 
-        let gov_token_addr = governance_token_address::InternalContractStateTrait::read(
-            @state.governance_token_address
-        );
+        let gov_token_addr = governance_token_address::read();
         let caller_balance_u256: u256 = IERC20Dispatcher {
             contract_address: gov_token_addr
         }.balanceOf(caller_addr);
@@ -219,22 +187,15 @@ mod Proposals {
 
         update_calldata(to_addr, already_delegated + amount, calldata_span, updated_list, 0);
 
-        delegate_hash::InternalContractStateTrait::write(
-            ref state.delegate_hash, caller_addr, hashing(0, updated_list_span, 0)
-        );
-        total_delegated_to::InternalContractStateTrait::write(
-            ref state.total_delegated_to, to_addr, curr_total_delegated_to + amount
-        );
+        delegate_hash::write(caller_addr, hashing(0, updated_list_span, 0));
+        total_delegated_to::write(to_addr, curr_total_delegated_to + amount);
     }
 
     fn withdraw_delegation(
         to_addr: ContractAddress, calldata: Array<(ContractAddress, u128)>, amount: u128
     ) {
-        let mut state = Governance::unsafe_new_contract_state();
         let caller_addr = get_caller_address();
-        let stored_hash = delegate_hash::InternalContractStateTrait::read(
-            @state.delegate_hash, caller_addr
-        );
+        let stored_hash = delegate_hash::read(caller_addr);
         let calldata_span: Span<(ContractAddress, u128)> = calldata.span();
         assert(stored_hash == hashing(0, calldata_span, 0), 'incorrect delegate list');
 
@@ -246,38 +207,24 @@ mod Proposals {
         let minus_amount = 0 - amount;
         update_calldata(to_addr, minus_amount, calldata_span, updated_list, 0);
 
-        delegate_hash::InternalContractStateTrait::write(
-            ref state.delegate_hash, caller_addr, hashing(0, updated_list_span, 0)
-        );
+        delegate_hash::write(caller_addr, hashing(0, updated_list_span, 0));
 
-        let curr_total_delegated_to = total_delegated_to::InternalContractStateTrait::read(
-            @state.total_delegated_to, to_addr
-        );
-        total_delegated_to::InternalContractStateTrait::write(
-            ref state.total_delegated_to, to_addr, curr_total_delegated_to - amount
-        );
+        let curr_total_delegated_to = total_delegated_to::read(to_addr);
+        total_delegated_to::write(to_addr, curr_total_delegated_to - amount);
     }
-
 
     fn vote(prop_id: felt252, opinion: felt252) {
         // Checks
-        assert((opinion == 1) | (opinion == 2), 'opinion must be either 1 or 2');
+        assert(opinion == 1 | opinion == 2, 'opinion must be either 1 or 2');
         let mut actual_opinion = 0;
         if opinion == 2 {
             actual_opinion = constants::MINUS_ONE;
         } else {
             actual_opinion = 1;
         }
-
-        let mut state = Governance::unsafe_new_contract_state();
-
-        let gov_token_addr = governance_token_address::InternalContractStateTrait::read(
-            @state.governance_token_address
-        );
+        let gov_token_addr = governance_token_address::read();
         let caller_addr = get_caller_address();
-        let curr_vote_status: felt252 = proposal_voted_by::InternalContractStateTrait::read(
-            @state.proposal_voted_by, (prop_id, caller_addr)
-        );
+        let curr_vote_status: felt252 = proposal_voted_by::read((prop_id, caller_addr));
         assert(curr_vote_status == 0, 'already voted');
 
         let caller_balance_u256: u256 = IERC20Dispatcher {
@@ -287,54 +234,31 @@ mod Proposals {
         let caller_balance: u128 = caller_balance_u256.low;
         assert(caller_balance != 0, 'CARM balance is zero');
 
-        let caller_voting_power = caller_balance
-            + total_delegated_to::InternalContractStateTrait::read(
-                @state.total_delegated_to, caller_addr
-            );
+        let caller_voting_power = caller_balance + total_delegated_to::read(caller_addr);
 
         assert(caller_voting_power > 0, 'No voting power');
 
         assert_voting_in_progress(prop_id);
 
         // Cast vote
-        proposal_voted_by::InternalContractStateTrait::write(
-            ref state.proposal_voted_by, (prop_id, caller_addr), actual_opinion
-        );
+        proposal_voted_by::write((prop_id, caller_addr), actual_opinion);
         if actual_opinion == constants::MINUS_ONE {
-            let curr_votes: u128 = proposal_total_nay::InternalContractStateTrait::read(
-                @state.proposal_total_nay, prop_id
-            )
-                .try_into()
-                .unwrap();
+            let curr_votes: u128 = proposal_total_nay::read(prop_id).try_into().unwrap();
             let new_votes: u128 = curr_votes + caller_voting_power;
             assert(new_votes >= 0, 'new_votes must be non-negative');
-            proposal_total_nay::InternalContractStateTrait::write(
-                ref state.proposal_total_nay, prop_id, new_votes.into()
-            );
+            proposal_total_nay::write(prop_id, new_votes.into());
         } else {
-            let curr_votes: u128 = proposal_total_yay::InternalContractStateTrait::read(
-                @state.proposal_total_yay, prop_id
-            )
-                .try_into()
-                .unwrap();
+            let curr_votes: u128 = proposal_total_yay::read(prop_id).try_into().unwrap();
             let new_votes: u128 = curr_votes + caller_voting_power;
             assert(new_votes >= 0, 'new_votes must be non-negative');
-            proposal_total_yay::InternalContractStateTrait::write(
-                ref state.proposal_total_yay, prop_id, new_votes.into()
-            );
+            proposal_total_yay::write(prop_id, new_votes.into());
         }
-        state.emit(Governance::Voted { prop_id: prop_id, voter: caller_addr, opinion: opinion });
+        Governance::Voted(prop_id, caller_addr, opinion);
     }
 
-
     fn check_proposal_passed_express(prop_id: felt252) -> u8 {
-        let state = Governance::unsafe_new_contract_state();
-        let gov_token_addr = governance_token_address::InternalContractStateTrait::read(
-            @state.governance_token_address
-        );
-        let yay_tally_felt: felt252 = proposal_total_yay::InternalContractStateTrait::read(
-            @state.proposal_total_yay, prop_id
-        );
+        let gov_token_addr = governance_token_address::read();
+        let yay_tally_felt: felt252 = proposal_total_yay::read(prop_id);
         let yay_tally: u128 = yay_tally_felt.try_into().unwrap();
         let total_eligible_votes_from_tokenholders_u256: u256 = IERC20Dispatcher {
             contract_address: gov_token_addr
@@ -361,11 +285,7 @@ mod Proposals {
     }
 
     fn get_proposal_status(prop_id: felt252) -> felt252 {
-        let state = Governance::unsafe_new_contract_state();
-
-        let end_block_number_felt: felt252 = proposal_vote_ends::InternalContractStateTrait::read(
-            @state.proposal_vote_ends, prop_id
-        );
+        let end_block_number_felt: felt252 = proposal_vote_ends::read(prop_id);
         let end_block_number: u64 = end_block_number_felt.try_into().unwrap();
         let current_block_number: u64 = get_block_info().unbox().block_number;
 
@@ -373,15 +293,9 @@ mod Proposals {
             return check_proposal_passed_express(prop_id).into();
         }
 
-        let gov_token_addr = governance_token_address::InternalContractStateTrait::read(
-            @state.governance_token_address
-        );
-        let nay_tally_felt: felt252 = proposal_total_nay::InternalContractStateTrait::read(
-            @state.proposal_total_nay, prop_id
-        );
-        let yay_tally_felt: felt252 = proposal_total_yay::InternalContractStateTrait::read(
-            @state.proposal_total_yay, prop_id
-        );
+        let gov_token_addr = governance_token_address::read();
+        let nay_tally_felt: felt252 = proposal_total_nay::read(prop_id);
+        let yay_tally_felt: felt252 = proposal_total_yay::read(prop_id);
         let nay_tally: u128 = nay_tally_felt.try_into().unwrap();
         let yay_tally: u128 = yay_tally_felt.try_into().unwrap();
         let total_tally: u128 = yay_tally + nay_tally;
@@ -411,34 +325,23 @@ mod Proposals {
         }
     }
 
-
     fn vote_investor(prop_id: felt252, opinion: felt252) {
         // Checks
-        assert(
-            (opinion == constants::MINUS_ONE) | (opinion == 1), 'opinion must be either 1 or -1'
-        );
-
-        let mut state = Governance::unsafe_new_contract_state();
+        assert(opinion == constants::MINUS_ONE | opinion == 1, 'opinion must be either 1 or -1');
 
         let caller_addr = get_caller_address();
-        let investor_voting_power: u128 = investor_voting_power::InternalContractStateTrait::read(
-            @state.investor_voting_power, caller_addr
-        )
+        let investor_voting_power: u128 = investor_voting_power::read(caller_addr)
             .try_into()
             .unwrap();
         assert(investor_voting_power != 0, 'caller not whitelisted investor');
 
-        let curr_vote_status: felt252 = proposal_voted_by::InternalContractStateTrait::read(
-            @state.proposal_voted_by, (prop_id, caller_addr)
-        );
+        let curr_vote_status: felt252 = proposal_voted_by::read((prop_id, caller_addr));
         assert(curr_vote_status == 0, 'already voted');
 
         assert_voting_in_progress(prop_id);
 
         // Calculate real voting power
-        let gov_token_addr = governance_token_address::InternalContractStateTrait::read(
-            @state.governance_token_address
-        );
+        let gov_token_addr = governance_token_address::read();
         let total_supply_u256: u256 = IERC20Dispatcher {
             contract_address: gov_token_addr
         }.totalSupply();
@@ -446,10 +349,7 @@ mod Proposals {
         let total_supply: u128 = total_supply_u256.low;
         let real_investor_voting_power: u128 = total_supply - constants::TEAM_TOKEN_BALANCE;
         assert(total_supply >= constants::TEAM_TOKEN_BALANCE, 'total_supply<team token bal?');
-        let total_distributed_power: u128 =
-            total_investor_distributed_power::InternalContractStateTrait::read(
-            @state.total_investor_distributed_power
-        )
+        let total_distributed_power: u128 = total_investor_distributed_power::read()
             .try_into()
             .unwrap();
         let vote_power = (real_investor_voting_power * investor_voting_power)
@@ -457,31 +357,17 @@ mod Proposals {
         assert(vote_power != 0, 'vote_power is zero');
 
         // Cast vote
-        proposal_voted_by::InternalContractStateTrait::write(
-            ref state.proposal_voted_by, (prop_id, caller_addr), opinion
-        );
+        proposal_voted_by::write((prop_id, caller_addr), opinion);
         if opinion == constants::MINUS_ONE {
-            let curr_votes: u128 = proposal_total_nay::InternalContractStateTrait::read(
-                @state.proposal_total_nay, prop_id
-            )
-                .try_into()
-                .unwrap();
+            let curr_votes: u128 = proposal_total_nay::read(prop_id).try_into().unwrap();
             let new_votes: u128 = curr_votes + vote_power;
             assert(new_votes >= 0, 'new_votes negative');
-            proposal_total_nay::InternalContractStateTrait::write(
-                ref state.proposal_total_nay, prop_id, new_votes.into()
-            );
+            proposal_total_nay::write(prop_id, new_votes.into());
         } else {
-            let curr_votes: u128 = proposal_total_yay::InternalContractStateTrait::read(
-                @state.proposal_total_yay, prop_id
-            )
-                .try_into()
-                .unwrap();
+            let curr_votes: u128 = proposal_total_yay::read(prop_id).try_into().unwrap();
             let new_votes: u128 = curr_votes + vote_power;
             assert(new_votes >= 0, 'new_votes negative');
-            proposal_total_yay::InternalContractStateTrait::write(
-                ref state.proposal_total_yay, prop_id, new_votes.into()
-            );
+            proposal_total_yay::write(prop_id, new_votes.into());
         }
     }
 }
