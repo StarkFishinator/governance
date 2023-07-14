@@ -65,12 +65,12 @@ mod Governance {
     }
 
     #[external]
-    fn delegate_vote(to_addr: ContractAddress, calldata: Array<(ContractAddress, u128)>, amount: u128) {
+    fn delegate_vote(to_addr: ContractAddress, calldata: Array<(felt252, u128)>, amount: u128) {
         Proposals::delegate_vote(to_addr, calldata, amount)
     }
 
     #[external]
-    fn withdraw_delegation(to_addr: ContractAddress, calldata: Array<(ContractAddress, u128)>, amount: u128) {
+    fn withdraw_delegation(to_addr: ContractAddress, calldata: Array<(felt252, u128)>, amount: u128) {
         Proposals::withdraw_delegation(to_addr, calldata, amount)
     }
 
