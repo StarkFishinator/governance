@@ -3,5 +3,13 @@ build:
 	rm -rf target/
 	scarb build
 
-deploy: build
-	starknet declare --contract target/release/governance_Governance.json --account version_11
+# Declares class hash, the hash is then printed into terminal.
+# Following ENV variables must be set:
+#		STARKNET_ACCOUNT	- path to account file
+#		STARKNET_KEYSTORE	- path to keystore file
+#		STARKNET_RPC			- RPC node URL - network will be selected based on RPC network
+_declare:
+	starkli declare target/dev/governance_Governance.contract_class.json
+
+
+declare: build declare

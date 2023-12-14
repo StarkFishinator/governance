@@ -2,25 +2,23 @@
 // When Components arrive in Cairo 2.?, it will be refactored to take advantage of them. Random change to rerun CI
 
 use starknet::ContractAddress;
-use governance::types::{ContractType, PropDetails};
+use governance::types::{ContractType, PropDetails, PropStatus, VoteCount};
 
 #[starknet::interface]
 trait IGovernance<TContractState> {
     // PROPOSALS
 
-    fn vote(ref self: TContractState, prop_id: felt252, opinion: felt252);
-    fn get_proposal_details(self: @TContractState, prop_id: felt252) -> PropDetails;
-    fn get_vote_counts(self: @TContractState, prop_id: felt252) -> (u128, u128);
-    fn submit_proposal(
-        ref self: TContractState, impl_hash: felt252, to_upgrade: ContractType
-    ) -> felt252;
-    fn get_proposal_status(self: @TContractState, prop_id: felt252) -> felt252;
+    fn vote(ref self: TContractState, prop_id: u32, opinion: bool);
+    fn get_proposal_details(self: @TContractState, prop_id: u32) -> PropDetails;
+    fn get_vote_counts(self: @TContractState, prop_id: u32) -> VoteCount;
+    fn submit_proposal(ref self: TContractState, impl_hash: felt252, to_upgrade: u8) -> u32;
+    fn get_proposal_status(self: @TContractState, prop_id: u32) -> PropStatus;
 
     // UPGRADES
 
     fn get_governance_token_address(self: @TContractState) -> ContractAddress;
     fn get_amm_address(self: @TContractState) -> ContractAddress;
-    fn apply_passed_proposal(ref self: TContractState, prop_id: felt252);
+    fn apply_passed_proposal(ref self: TContractState, prop_id: u32);
 
     // AIRDROPS
 
@@ -34,11 +32,10 @@ trait IGovernance<TContractState> {
 
 #[starknet::contract]
 mod Governance {
-    use governance::types::BlockNumber;
-    use governance::types::VoteStatus;
+    use governance::types::{
+        BlockNumber, ContractType, PropDetails, PropStatus, VoteStatus, VoteCount
+    };
     use governance::proposals::Proposals;
-    use governance::types::ContractType;
-    use governance::types::PropDetails;
     use governance::upgrades::Upgrades;
     use governance::options::Options;
     use governance::airdrop::airdrop as airdrop_component;
@@ -53,13 +50,12 @@ mod Governance {
 
     #[storage]
     struct Storage {
-        proposal_details: LegacyMap::<felt252, PropDetails>,
-        proposal_vote_ends: LegacyMap::<felt252, BlockNumber>,
-        proposal_vote_end_timestamp: LegacyMap::<felt252, u64>,
-        proposal_voted_by: LegacyMap::<(felt252, ContractAddress), VoteStatus>,
-        proposal_total_yay: LegacyMap::<felt252, felt252>,
-        proposal_total_nay: LegacyMap::<felt252, felt252>,
-        proposal_applied: LegacyMap::<felt252, felt252>, // should be Bool after migration
+        proposal_details: LegacyMap::<u32, PropDetails>,
+        proposal_vote_ends: LegacyMap::<u32, BlockNumber>,
+        proposal_vote_end_timestamp: LegacyMap::<u32, u64>,
+        proposal_voted_by: LegacyMap::<(u32, ContractAddress), Option<VoteStatus>>,
+        proposal_total: LegacyMap::<u32, VoteCount>,
+        proposal_applied: LegacyMap::<u32, felt252>, // should be Bool after migration
         proposal_initializer_run: LegacyMap::<u64, bool>,
         investor_voting_power: LegacyMap::<ContractAddress, felt252>,
         total_investor_distributed_power: felt252,
@@ -75,16 +71,16 @@ mod Governance {
 
     #[derive(starknet::Event, Drop)]
     struct Proposed {
-        prop_id: felt252,
+        prop_id: u32,
         payload: felt252,
-        to_upgrade: ContractType
+        to_upgrade: u8,
     }
 
     #[derive(starknet::Event, Drop)]
     struct Voted {
-        prop_id: felt252,
+        prop_id: u32,
         voter: ContractAddress,
-        opinion: VoteStatus
+        opinion: bool
     }
 
     #[derive(starknet::Event, Drop)]
@@ -105,28 +101,26 @@ mod Governance {
     impl Governance of super::IGovernance<ContractState> {
         // PROPOSALS
 
-        fn get_proposal_details(self: @ContractState, prop_id: felt252) -> PropDetails {
+        fn get_proposal_details(self: @ContractState, prop_id: u32) -> PropDetails {
             Proposals::get_proposal_details(prop_id)
         }
 
         // This should ideally return VoteCounts, but it seems like structs can't be returned from 
         // C1.0 external fns as they can't be serialized
         // Actually it can, TODO do the same as I did with PropDetails for this
-        fn get_vote_counts(self: @ContractState, prop_id: felt252) -> (u128, u128) {
+        fn get_vote_counts(self: @ContractState, prop_id: u32) -> VoteCount {
             Proposals::get_vote_counts(prop_id)
         }
 
-        fn submit_proposal(
-            ref self: ContractState, impl_hash: felt252, to_upgrade: ContractType
-        ) -> felt252 {
+        fn submit_proposal(ref self: ContractState, impl_hash: felt252, to_upgrade: u8) -> u32 {
             Proposals::submit_proposal(impl_hash, to_upgrade)
         }
 
-        fn vote(ref self: ContractState, prop_id: felt252, opinion: felt252) {
+        fn vote(ref self: ContractState, prop_id: u32, opinion: bool) {
             Proposals::vote(prop_id, opinion)
         }
 
-        fn get_proposal_status(self: @ContractState, prop_id: felt252) -> felt252 {
+        fn get_proposal_status(self: @ContractState, prop_id: u32) -> PropStatus {
             Proposals::get_proposal_status(prop_id)
         }
 
@@ -140,7 +134,7 @@ mod Governance {
             self.amm_address.read()
         }
 
-        fn apply_passed_proposal(ref self: ContractState, prop_id: felt252) {
+        fn apply_passed_proposal(ref self: ContractState, prop_id: u32) {
             Upgrades::apply_passed_proposal(prop_id)
         }
 

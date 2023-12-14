@@ -1,4 +1,5 @@
 mod Proposals {
+    use core::traits::Destruct;
     use governance::contract::IGovernance;
     use traits::TryInto;
     use option::OptionTrait;
@@ -24,8 +25,7 @@ mod Proposals {
     use starknet::class_hash::class_hash_try_from_felt252;
     use starknet::contract_address::contract_address_to_felt252;
 
-    use governance::contract::Governance::proposal_total_yayContractMemberStateTrait;
-    use governance::contract::Governance::proposal_total_nayContractMemberStateTrait;
+    use governance::contract::Governance::proposal_totalContractMemberStateTrait;
     use governance::contract::Governance::proposal_vote_endsContractMemberStateTrait;
     use governance::contract::Governance::proposal_vote_end_timestampContractMemberStateTrait;
     use governance::contract::Governance::delegate_hashContractMemberStateTrait;
@@ -35,33 +35,28 @@ mod Proposals {
     use governance::contract::Governance::ContractState;
     use governance::contract::Governance::unsafe_new_contract_state;
     use governance::contract::Governance;
-    use governance::types::BlockNumber;
-    use governance::types::ContractType;
-    use governance::types::PropDetails;
+    use governance::types::{
+        BlockNumber, ContractType, PropDetails, PropStatus, VoteCount, VoteStatus
+    };
     use governance::traits::IERC20Dispatcher;
     use governance::traits::IERC20DispatcherTrait;
     use governance::constants;
 
-    fn get_vote_counts(prop_id: felt252) -> (u128, u128) {
+    fn get_vote_counts(prop_id: u32) -> VoteCount {
         let state: ContractState = Governance::unsafe_new_contract_state();
-
-        let yay = state.proposal_total_yay.read(prop_id);
-        let nay = state.proposal_total_nay.read(prop_id);
-
-        (yay.try_into().unwrap(), nay.try_into().unwrap())
+        state.proposal_total.read(prop_id)
     }
 
-    fn get_proposal_details(prop_id: felt252) -> PropDetails {
+    fn get_proposal_details(prop_id: u32) -> PropDetails {
         let state = Governance::unsafe_new_contract_state();
         state.proposal_details.read(prop_id)
     }
 
-    fn assert_correct_contract_type(contract_type: ContractType) {
-        let contract_type_u: u64 = contract_type.try_into().unwrap();
-        assert(contract_type_u <= 4, 'invalid contract type')
+    fn assert_correct_contract_type(contract_type: u8) {
+        assert(contract_type <= 4, 'invalid contract type')
     }
 
-    fn assert_voting_in_progress(prop_id: felt252) {
+    fn assert_voting_in_progress(prop_id: u32) {
         let state = Governance::unsafe_new_contract_state();
         let end_timestamp: u64 = state.proposal_vote_end_timestamp.read(prop_id);
         assert(end_timestamp != 0, 'prop_id not found');
@@ -75,11 +70,11 @@ mod Proposals {
         u256 { low, high }
     }
 
-    fn get_free_prop_id() -> felt252 {
+    fn get_free_prop_id() -> u32 {
         _get_free_prop_id(0)
     }
 
-    fn _get_free_prop_id(currid: felt252) -> felt252 {
+    fn _get_free_prop_id(currid: u32) -> u32 {
         let state = Governance::unsafe_new_contract_state();
         let res = state.proposal_vote_ends.read(currid);
         if res == 0 {
@@ -89,11 +84,11 @@ mod Proposals {
         }
     }
 
-    fn get_free_prop_id_timestamp() -> felt252 {
+    fn get_free_prop_id_timestamp() -> u32 {
         _get_free_prop_id_timestamp(0)
     }
 
-    fn _get_free_prop_id_timestamp(currid: felt252) -> felt252 {
+    fn _get_free_prop_id_timestamp(currid: u32) -> u32 {
         let state = Governance::unsafe_new_contract_state();
         let res = state.proposal_vote_end_timestamp.read(currid);
         if res == 0 {
@@ -103,7 +98,7 @@ mod Proposals {
         }
     }
 
-    fn submit_proposal(payload: felt252, to_upgrade: ContractType) -> felt252 {
+    fn submit_proposal(payload: felt252, to_upgrade: u8) -> u32 {
         assert_correct_contract_type(to_upgrade);
         let mut state = Governance::unsafe_new_contract_state();
         let govtoken_addr = state.get_governance_token_address();
@@ -122,7 +117,7 @@ mod Proposals {
         state.proposal_details.write(prop_id, prop_details);
 
         let current_timestamp: u64 = get_block_timestamp();
-        let end_timestamp: u64 = current_timestamp + constants::PROPOSAL_VOTING_SECONDS;
+        let end_timestamp: u64 = current_timestamp + 600; // ten minutes
         state.proposal_vote_end_timestamp.write(prop_id, end_timestamp);
 
         state.emit(Governance::Proposed { prop_id, payload, to_upgrade });
@@ -236,23 +231,13 @@ mod Proposals {
     }
 
 
-    fn vote(prop_id: felt252, opinion: felt252) {
-        // Checks
-        assert((opinion == 1) | (opinion == 2), 'opinion must be either 1 or 2');
-        let mut actual_opinion = 0;
-        if opinion == 2 {
-            actual_opinion = constants::MINUS_ONE;
-        } else {
-            actual_opinion = 1;
-        }
-
+    fn vote(prop_id: u32, opinion: bool) {
         let mut state = Governance::unsafe_new_contract_state();
-
         let gov_token_addr = state.get_governance_token_address();
         let caller_addr = get_caller_address();
-        let curr_vote_status: felt252 = state.proposal_voted_by.read((prop_id, caller_addr));
-        // TODO allow override of previous vote
-        assert(curr_vote_status == 0, 'already voted');
+        let vote_status: Option<VoteStatus> = state.proposal_voted_by.read((prop_id, caller_addr));
+
+        assert(vote_status.is_none(), 'already voted');
 
         let caller_balance_u256: u256 = IERC20Dispatcher { contract_address: gov_token_addr }
             .balanceOf(caller_addr);
@@ -266,28 +251,34 @@ mod Proposals {
 
         assert_voting_in_progress(prop_id);
 
-        // Cast vote
-        state.proposal_voted_by.write((prop_id, caller_addr), actual_opinion);
-        if actual_opinion == constants::MINUS_ONE {
-            let curr_votes: u128 = state.proposal_total_nay.read(prop_id).try_into().unwrap();
-            let new_votes: u128 = curr_votes + caller_voting_power;
-            assert(new_votes >= 0, 'new_votes must be non-negative');
-            state.proposal_total_nay.write(prop_id, new_votes.into());
+        let current_vote_count = state.proposal_total.read(prop_id);
+
+        if opinion {
+            // Vote YAY
+            state.proposal_voted_by.write((prop_id, caller_addr), Option::Some(VoteStatus::Yay));
+            let new_vote_count = VoteCount {
+                yay: current_vote_count.yay + caller_voting_power, nay: current_vote_count.nay
+            };
+            assert(new_vote_count.yay >= 0, 'new_votes must be non-negative');
+            state.proposal_total.write(prop_id, new_vote_count);
         } else {
-            let curr_votes: u128 = state.proposal_total_yay.read(prop_id).try_into().unwrap();
-            let new_votes: u128 = curr_votes + caller_voting_power;
-            assert(new_votes >= 0, 'new_votes must be non-negative');
-            state.proposal_total_yay.write(prop_id, new_votes.into());
+            // Vote NAY
+            state.proposal_voted_by.write((prop_id, caller_addr), Option::Some(VoteStatus::Nay));
+            let new_vote_count = VoteCount {
+                yay: current_vote_count.yay, nay: current_vote_count.nay + caller_voting_power
+            };
+            assert(current_vote_count.nay >= 0, 'new_votes must be non-negative');
+            state.proposal_total.write(prop_id, new_vote_count);
         }
+
         state.emit(Governance::Voted { prop_id: prop_id, voter: caller_addr, opinion: opinion });
     }
 
 
-    fn check_proposal_passed_express(prop_id: felt252) -> u8 {
+    fn check_proposal_passed_express(prop_id: u32) -> PropStatus {
         let state = Governance::unsafe_new_contract_state();
         let gov_token_addr = state.get_governance_token_address();
-        let yay_tally_felt: felt252 = state.proposal_total_yay.read(prop_id);
-        let yay_tally: u128 = yay_tally_felt.try_into().unwrap();
+        let total = state.proposal_total.read(prop_id);
         let total_eligible_votes_from_tokenholders_u256: u256 = IERC20Dispatcher {
             contract_address: gov_token_addr
         }
@@ -306,14 +297,14 @@ mod Proposals {
         let minimum_for_express: u128 = total_eligible_votes_from_tokenholders / 2;
 
         // Check if yay_tally >= minimum_for_express
-        if yay_tally >= minimum_for_express {
-            1
+        if total.yay >= minimum_for_express {
+            PropStatus { code: 1, status: 'accepted expressly' }
         } else {
-            0
+            PropStatus { code: 2, status: 'voting still in progress' }
         }
     }
 
-    fn get_proposal_status(prop_id: felt252) -> felt252 {
+    fn get_proposal_status(prop_id: u32) -> PropStatus {
         let state = Governance::unsafe_new_contract_state();
 
         let end_timestamp: u64 = state.proposal_vote_end_timestamp.read(prop_id);
@@ -324,11 +315,9 @@ mod Proposals {
         }
 
         let gov_token_addr = state.get_governance_token_address();
-        let nay_tally_felt: felt252 = state.proposal_total_nay.read(prop_id);
-        let yay_tally_felt: felt252 = state.proposal_total_yay.read(prop_id);
-        let nay_tally: u128 = nay_tally_felt.try_into().unwrap();
-        let yay_tally: u128 = yay_tally_felt.try_into().unwrap();
-        let total_tally: u128 = yay_tally + nay_tally;
+        let vote_count = state.proposal_total.read(prop_id);
+        let total_tally: u128 = vote_count.yay + vote_count.nay;
+
         // Here we multiply by 100 as the constant QUORUM is in percent.
         // If QUORUM = 10, quorum was not met if (total_tally*100) < (total_eligible * 10).
         let total_tally_multiplied = total_tally * 100;
@@ -339,18 +328,15 @@ mod Proposals {
         let total_eligible_votes: u128 = total_eligible_votes_u256.low;
 
         let quorum_threshold: u128 = total_eligible_votes * constants::QUORUM;
+
         if total_tally_multiplied < quorum_threshold {
-            return constants::MINUS_ONE; // didn't meet quorum
+            return PropStatus { status: 'did not meet quorum', code: 0 }; // didn't meet quorum
         }
 
-        if yay_tally == nay_tally {
-            return constants::MINUS_ONE; // yay_tally = nay_tally
-        }
-
-        if yay_tally > nay_tally {
-            return 1; // yay_tally > nay_tally
+        if vote_count.yay > vote_count.nay {
+            return PropStatus { status: 'passed', code: 1 }; // didn't meet quorum
         } else {
-            return constants::MINUS_ONE; // yay_tally < nay_tally
+            return PropStatus { status: 'rejected', code: 0 }; // didn't meet quorum
         }
     }
 }
