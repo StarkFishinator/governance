@@ -13,6 +13,7 @@ trait IGovernance<TContractState> {
     fn get_vote_counts(self: @TContractState, prop_id: u32) -> VoteCount;
     fn submit_proposal(ref self: TContractState, impl_hash: felt252, to_upgrade: u8) -> u32;
     fn get_proposal_status(self: @TContractState, prop_id: u32) -> PropStatus;
+    fn get_live_proposals(self: @TContractState) -> Array<u32>;
 
     // UPGRADES
 
@@ -36,6 +37,7 @@ mod Governance {
         BlockNumber, ContractType, PropDetails, PropStatus, VoteStatus, VoteCount
     };
     use governance::proposals::Proposals;
+    use governance::proposals::Proposals::get_free_prop_id_timestamp;
     use governance::upgrades::Upgrades;
     use governance::options::Options;
     use governance::airdrop::airdrop as airdrop_component;
@@ -122,6 +124,10 @@ mod Governance {
 
         fn get_proposal_status(self: @ContractState, prop_id: u32) -> PropStatus {
             Proposals::get_proposal_status(prop_id)
+        }
+
+        fn get_live_proposals(self: @ContractState) -> Array<u32> {
+            Proposals::get_live_proposals()
         }
 
         // UPGRADES

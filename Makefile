@@ -8,8 +8,7 @@ build:
 #		STARKNET_ACCOUNT	- path to account file
 #		STARKNET_KEYSTORE	- path to keystore file
 #		STARKNET_RPC			- RPC node URL - network will be selected based on RPC network
-_declare:
-	starkli declare target/dev/governance_Governance.contract_class.json
-
-
-declare: build declare
+declare:
+	@FILE_PATH=$(shell find target/dev -type f -name "*.contract_class.json"); \
+	echo $${FILE_PATH}; \
+	starkli declare $${FILE_PATH}
