@@ -21,6 +21,8 @@ mod DeployAMM {
         AMM_CLASS_HASH, LP_TOKEN_CLASS_HASH, ETH_ADDRESS, USDC_ADDRESS, BTC_ADDRESS
     };
 
+    use debug::PrintTrait;
+
 
     // Deploys new AMM, sets AMM address storage var to new AMM, adds lptokens, etc etc etc
     fn deploy_amm() {
@@ -55,6 +57,8 @@ mod DeployAMM {
             0,
             FixedTrait::from_unscaled_felt(voladjspd_eth_call_lpt)
         );
+        'deployed call pool with base:'.print();
+        eth_addr.print();
         let eth_put_lpt_addr = deploy_lptoken(
             amm,
             'Carmine ETH/USDC put pool',

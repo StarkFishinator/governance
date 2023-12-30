@@ -11,3 +11,7 @@ mod proposals;
 mod traits;
 mod types;
 mod upgrades;
+
+mod my_token;
+mod erc20;
+mod interface;

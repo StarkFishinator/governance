@@ -1,3 +1,4 @@
+use core::array::ArrayTrait;
 use core::option::OptionTrait;
 use core::traits::TryInto;
 //use tests::basic::submit_44_signal_proposals;
@@ -8,11 +9,11 @@ use governance::contract::IGovernanceDispatcherTrait;
 use governance::traits::{
     IAMMDispatcher, IAMMDispatcherTrait, IERC20Dispatcher, IERC20DispatcherTrait
 };
-use governance::constants::TRADE_SIDE_LONG;
+use governance::constants::{TRADE_SIDE_LONG, TRADE_SIDE_SHORT, ETH_ADDRESS};
 
 use starknet::{ContractAddress, ClassHash, get_block_timestamp};
 
-use snforge_std::{declare, ContractClassTrait, ContractClass, start_prank, start_warp, CheatTarget};
+use snforge_std::{declare, ContractClassTrait, ContractClass, start_prank, stop_prank, start_warp, CheatTarget};
 use cubit::f128::types::{Fixed, FixedTrait};
 
 use debug::PrintTrait;
@@ -20,6 +21,15 @@ use debug::PrintTrait;
 #[test]
 #[fork("MAINNET")]
 fn test_deploy_amm() {
+    let mytoken_contract: ContractClass = declare('MyToken');
+    let mut myt_calldata: Array<felt252> = ArrayTrait::<felt252>::new();
+    myt_calldata.append('mockETH');
+    myt_calldata.append('mETH');
+    myt_calldata.append(18);
+    myt_calldata.append(0);
+    myt_calldata.append(1000000);
+    myt_calldata.append(0x04c0a5193d58f74fbace4b74dcf65481e734ed1714121bdc571da345540efa05);
+    mytoken_contract.deploy_at(@myt_calldata, ETH_ADDRESS.try_into().unwrap());
     let gov_contract_addr: ContractAddress =
         0x001405ab78ab6ec90fba09e6116f373cda53b0ba557789a4578d8c1ec374ba0f
         .try_into()
@@ -44,29 +54,37 @@ fn test_deploy_amm() {
     dispatcher.deploy_new_amm();
     let amm_addr = dispatcher.get_amm_address();
     let USDC_addr: felt252 = 0x053c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8;
-    let ETH_addr: felt252 = 0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7;
+    let ETH_addr: felt252 = ETH_ADDRESS;//0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7;
     let quote_token_address: ContractAddress = USDC_addr.try_into().unwrap();
     let base_token_address: ContractAddress = ETH_addr.try_into().unwrap();
 
-    deposit(amm_addr, 1, quote_token_address, base_token_address, 0x0583a9d956d65628f806386ab5b12dccd74236a3c6b930ded9cf3c54efc722a1.try_into().unwrap());
+    deposit(amm_addr, 100000, quote_token_address, base_token_address, 0x04c0a5193d58f74fbace4b74dcf65481e734ed1714121bdc571da345540efa05.try_into().unwrap());
     
     //trade_option(1705017599, marek_address, amm_addr, FixedTrait::from_unscaled_felt(2200));
 }
 
-fn deposit(amm: ContractAddress, amt: u256, quote: ContractAddress, base: ContractAddress, from: ContractAddress) {
-    let eth = IERC20Dispatcher { contract_address: base };
+fn deposit(amm_addr: ContractAddress, amt: u256, quote: ContractAddress, base: ContractAddress, from: ContractAddress) {
+    let token_to_deposit = IERC20Dispatcher { contract_address: base };
     start_prank(CheatTarget::One(base), from);
-    eth.approve(amm, amt + 1);
-    let allowance = eth.allowance(from, amm);
+    token_to_deposit.increase_allowance(amm_addr, amt + 1);
+    stop_prank(CheatTarget::One(base));
+    let allowance = token_to_deposit.allowance(from, amm_addr);
     assert(allowance == amt + 1, 'approve unsuccessful?');
-    start_prank(CheatTarget::One(amm), from);
-    let amm = IAMMDispatcher { contract_address: amm };
+
+    let amm = IAMMDispatcher { contract_address: amm_addr };
+    start_prank(CheatTarget::One(amm_addr), from);
+    'amm_addr'.print();
+    amm_addr.print();
+    'depositing token:'.print();
+    base.print();
+    let res = amm.get_lptoken_address_for_given_option(quote, base, 0);
+    assert(res.into() != 0, 'no lpt??');
     amm.deposit_liquidity(
         base,
         quote,
         base,
         TRADE_SIDE_LONG,
-        amt //4000908584712648
+        amt-1 //4000908584712648
     );
 }
 

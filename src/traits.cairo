@@ -19,6 +19,7 @@ trait IERC20<TContractState> {
         ref self: TContractState, sender: ContractAddress, recipient: ContractAddress, amount: u256
     ) -> bool;
     fn approve(ref self: TContractState, spender: ContractAddress, amount: u256) -> bool;
+    fn increase_allowance(ref self: TContractState, spender: ContractAddress, addedamount: u256) -> bool;
 }
 
 #[starknet::interface]
