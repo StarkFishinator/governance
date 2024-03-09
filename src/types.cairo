@@ -27,8 +27,8 @@ type OptionType = felt252;
 struct CustomProposal {
     class: ClassHash,
     function_selector: ClassHash,
-    // maybe name?
-    // maybe proposal type id?
+// maybe name?
+// maybe proposal type id?
 }
 
 // We need protocols that will be integrating the governance to be able to easily do this without altering it. So I would add a new module
@@ -36,5 +36,5 @@ struct CustomProposal {
 // the precise form of integration will be probably redone later, now I lean towards having governance as a package with components and requiring
 // any protocol that is using it to implement a few traits. hopefully that should all that's needed. this way we also lay the groundwork for #51
 trait CustomProposalList {
-    fn get_custom_proposals() -> Span<CustomProposal>; // 
+    fn get_custom_proposals() -> Span<CustomProposal>;  
 }
